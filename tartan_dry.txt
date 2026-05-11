@@ -1,0 +1,6 @@
+abandonedfactory/Easy/P011
+abandonedfactory/Hard/P011
+gascola/Easy/P008
+gascola/Hard/P009
+hospital/Easy/P036
+hospital/Hard/P049

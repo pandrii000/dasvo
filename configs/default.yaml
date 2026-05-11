@@ -1,0 +1,196 @@
+paths:
+  workspace_root: ./
+  assets_root: assets
+  data_root: assets/data/tartanair
+  outputs_root: assets/outputs
+  trajectories_root: assets/outputs/trajectories
+  robustness_outputs_root: assets/outputs/robustness
+  tables_root: assets/tables
+  figures_root: assets/figures
+  logs_root: assets/logs
+  config_snapshots_root: assets/configs/runs
+  paper_project_root: assets/paper/
+  paper_assets_root: assets/paper/depth-assisted-sparse-visual-odometry
+  paper_figures_root: assets/paper/depth-assisted-sparse-visual-odometry/figures
+  paper_tables_root: assets/paper/depth-assisted-sparse-visual-odometry/tables
+
+dataset:
+  name: tartanair
+  # sequences_file: tartan_dry.txt
+  sequences_file: tartan_test.txt
+  sequence_suites:
+    dry: tartan_dry.txt
+    smoke: tartan_dry.txt
+    paper: tartan_test.txt
+    test: tartan_test.txt
+  manifest_file: assets/data/tartanair/manifest.json
+  image_dir: image_left
+  depth_dir: depth_left
+  pose_file: pose_left.txt
+  image_glob: "*.png"
+  depth_glob: "*.npy"
+  require_complete: true
+
+camera:
+  width: 640
+  height: 480
+  fx: 320.0
+  fy: 320.0
+  cx: 320.0
+  cy: 240.0
+  depth_min_m: 0.1
+  depth_max_m: 100.0
+
+download:
+  source: hf
+  extract: true
+  clean: false
+  overwrite: false
+  progress: true
+  chunk_size_bytes: 16777216
+  hf_base_url: https://huggingface.co/datasets/theairlabcmu/tartanair/resolve/main
+  s3_endpoint_url: https://airlab-cloud.andrew.cmu.edu:8080/swift/v1/AUTH_ac8533a83cff4d48bc8c608ad222d330
+  s3_bucket: tartanair
+  archives:
+    images: image_left.zip
+    depth: depth_left.zip
+  data_dirs:
+    images: image_left
+    depth: depth_left
+  pose_file: pose_left.txt
+
+frontends:
+  orb:
+    nfeatures: 2000
+    scale_factor: 1.2
+    nlevels: 8
+    edge_threshold: 31
+    first_level: 0
+    wta_k: 2
+    score_type: harris
+    patch_size: 31
+    fast_threshold: 20
+    matcher: bf_hamming
+    ratio_test: 0.7
+    cross_check: false
+    min_matches: 8
+  klt:
+    max_corners: 1000
+    quality_level: 0.01
+    min_distance: 10.0
+    block_size: 3
+    use_harris_detector: false
+    harris_k: 0.04
+    win_size: [21, 21]
+    max_level: 3
+    criteria_count: 30
+    criteria_eps: 0.01
+    redetect_below: 100
+
+backends:
+  essential:
+    min_correspondences: 8
+    ransac_probability: 0.999
+    ransac_threshold_px: 1.0
+    recover_pose_distance_threshold_m:
+  pnp:
+    min_correspondences: 4
+    min_inliers: 12
+    iterations_count: 100
+    reprojection_error_px: 2.0
+    confidence: 0.99
+    solver: epnp
+    max_translation_norm_m: 5.0
+
+degradations:
+  default: none
+  presets:
+    none:
+      kind: none
+      apply_to: rgb
+      enabled: true
+      parameters: {}
+    blur_mild:
+      kind: gaussian_blur
+      apply_to: rgb
+      enabled: true
+      parameters:
+        kernel_size: 5
+        sigma: 0.0
+    blur_heavy:
+      kind: gaussian_blur
+      apply_to: rgb
+      enabled: true
+      parameters:
+        kernel_size: 11
+        sigma: 0.0
+    gaussian_noise:
+      kind: gaussian_noise
+      apply_to: rgb
+      enabled: true
+      parameters:
+        mean: 0.0
+        std: 12.0
+        seed_offset: 0
+    jpeg_low:
+      kind: jpeg
+      apply_to: rgb
+      enabled: true
+      parameters:
+        quality: 25
+    low_light:
+      kind: gamma
+      apply_to: rgb
+      enabled: true
+      parameters:
+        gamma: 1.8
+
+precomputed:
+  root: assets/interim
+  frontend_root: assets/interim/frontend
+  backend_root: assets/interim/backend
+  frontend_roots:
+    orb: assets/interim/frontend/orb
+    klt: assets/interim/frontend/klt
+  backend_roots:
+    essential: assets/interim/backend/essential
+    pnp: assets/interim/backend/pnp
+  correspondences_root: assets/interim/correspondences
+  depth_samples_root: assets/interim/depth_samples
+
+experiment:
+  frontends: [orb, klt]
+  backends: [essential, pnp]
+  frame_strides: [1, 2, 4, 8]
+  degradations: [none, blur_mild, blur_heavy, gaussian_noise, jpeg_low, low_light]
+  max_virtual_frames:
+  random_seed: 0
+  num_workers: 8
+  save_run_config: true
+
+evaluation:
+  metrics: [ate_rmse, rpe_rmse, failure_rate, runtime_fps]
+  rpe_delta: 1
+  monocular_scale_align_backends: [essential]
+  bootstrap_samples: 1000
+  bootstrap_seed: 0
+  confidence_level: 0.95
+  pose_sample_sizes: [25, 50, 100, 200, 500]
+  segment_sample_sizes: [25, 50, 100, 200, 500]
+
+publication:
+  copy_to_paper_assets: true
+  figure_names:
+    - trajectory_comparison.png
+    - robustness_stride_degradation.png
+    - eda_sequence_lengths.png
+    - divergent_frame_analysis.png
+    - prediction_side_by_side.png
+  table_names:
+    - vo_metrics_by_sequence.csv
+    - vo_metrics_by_sequence.tex
+    - vo_metrics_summary.csv
+    - vo_metrics_summary.tex
+    - robustness_metrics.tex
+    - eda_stats.tex
+  hardware_devices: [local, rpi4b, rpi_zero_2w]
