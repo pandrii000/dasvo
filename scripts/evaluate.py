@@ -8,7 +8,15 @@ from loguru import logger
 from tqdm import tqdm
 
 from dasvo.datasets import TartanAirSequence, list_sequences
-from dasvo.evaluation import align_umeyama, compute_rpe, load_est, load_gt_stride
+from dasvo.evaluation import (
+    align_umeyama,
+    compute_rpe,
+    compute_rpe_rotational,
+    load_est,
+    load_est_pose,
+    load_gt_pose_stride,
+    load_gt_stride,
+)
 from dasvo.settings import SETTINGS
 
 
@@ -22,14 +30,18 @@ def evaluate_sequence(
 ) -> None:
     output_dir = SETTINGS.paths.outputs_root / frontend_name / backend_name / degradation / str(frame_stride)
     traj_file = output_dir / f"{sequence.sequence_id}_traj.txt"
-    
+    pose_file = output_dir / f"{sequence.sequence_id}_pose.txt"
+
     if not traj_file.exists():
         return
 
     eval_dir = SETTINGS.paths.tables_root / frontend_name / backend_name / degradation / str(frame_stride)
     eval_dir.mkdir(parents=True, exist_ok=True)
-    
-    marker_file = eval_dir / f"{sequence.sequence_id}_eval_done.txt"
+
+    # Bump the marker name so existing evaluations that predate the rotational
+    # RPE wiring are recomputed automatically. Old markers stay on disk
+    # harmlessly; the new field is filled the first time evaluate runs.
+    marker_file = eval_dir / f"{sequence.sequence_id}_eval_done_v2.txt"
     if marker_file.exists() and not overwrite:
         return
 
@@ -45,14 +57,45 @@ def evaluate_sequence(
         est = est[:min_len]
 
         with_scale = (backend_name in SETTINGS.evaluation.monocular_scale_align_backends)
-        
+
         est_aligned, ate = align_umeyama(gt, est, with_scale=with_scale)
         rpe = compute_rpe(gt, est_aligned, delta=SETTINGS.evaluation.rpe_delta)
+
+        # PnP ATE under Sim(3) alignment isolates trajectory-shape error from
+        # metric-scale drift. Essential is already Sim(3)-aligned, so the same
+        # value is reused for the column.
+        ate_sim3 = float("nan")
+        if backend_name == "pnp":
+            _, ate_sim3_val = align_umeyama(gt, est, with_scale=True)
+            ate_sim3 = float(ate_sim3_val)
+        elif backend_name == "essential":
+            ate_sim3 = float(ate)
+
+        rpe_rot = float("nan")
+        if pose_file.exists():
+            try:
+                gt_pose = load_gt_pose_stride(sequence.pose_path, frame_stride)
+                est_pose = load_est_pose(pose_file)
+                pose_len = min(len(gt_pose), len(est_pose), min_len)
+                if pose_len > SETTINGS.evaluation.rpe_delta:
+                    rpe_rot = compute_rpe_rotational(
+                        gt_pose[:pose_len, 3:7],
+                        est_pose[:pose_len, 3:7],
+                        delta=SETTINGS.evaluation.rpe_delta,
+                    )
+            except Exception as pose_exc:
+                logger.warning(
+                    f"Rotational RPE skipped for {sequence.sequence_id} "
+                    f"[{frontend_name}-{backend_name}-{degradation}-s{frame_stride}]: {pose_exc}"
+                )
+
         failed = not (np.isfinite(ate) and np.isfinite(rpe))
 
         results = {
             "ate": float(ate),
+            "ate_sim3": ate_sim3,
             "rpe": float(rpe),
+            "rpe_rot": rpe_rot,
             "sequence": sequence.sequence_id,
             "frontend": frontend_name,
             "backend": backend_name,
@@ -62,13 +105,14 @@ def evaluate_sequence(
             "alignment": "sim3_umeyama" if with_scale else "se3_umeyama",
             "alignment_with_scale": bool(with_scale),
             "rpe_delta": SETTINGS.evaluation.rpe_delta,
+            "rpe_rot_available": bool(pose_file.exists() and np.isfinite(rpe_rot)),
             "failed": bool(failed),
         }
 
         result_file = eval_dir / f"{sequence.sequence_id}_results.json"
         with open(result_file, "w") as f:
             json.dump(results, f, indent=2)
-            
+
         marker_file.touch()
 
     except Exception as e:

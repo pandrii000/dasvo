@@ -2,7 +2,7 @@
 Wave 1 revision post-processing: normalized ATE, coverage, Holm-Bonferroni.
 
 Reads existing per-sequence ``_results.json`` artifacts and ground-truth pose files,
-computes additional metrics (normalized ATE
+computes additional metrics requested in the round-2 peer review (normalized ATE
 relative to GT trajectory length, finite-aggregation coverage per cell, and
 multiple-comparison-corrected Wilcoxon p-values across the baseline grid), and
 writes updated LaTeX assets without touching the main evaluation pipeline.
@@ -50,8 +50,10 @@ def _load_per_sequence_records(tables_root: Path) -> pd.DataFrame:
         raise RuntimeError(f"No per-sequence result JSONs found under {tables_root}")
     df = pd.DataFrame(records)
     df["frame_stride"] = df["frame_stride"].astype(int)
-    df["ate"] = pd.to_numeric(df["ate"], errors="coerce")
-    df["rpe"] = pd.to_numeric(df["rpe"], errors="coerce")
+    for col in ("ate", "rpe", "ate_sim3", "rpe_rot"):
+        if col not in df:
+            df[col] = float("nan")
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
@@ -97,7 +99,7 @@ def _aggregate_cells(df: pd.DataFrame, n_boot: int, confidence: float, seed: int
     rows: list[dict] = []
     for group_index, (key, group) in enumerate(df.groupby(group_cols, sort=True)):
         cell = dict(zip(group_cols, key, strict=True))
-        for metric in ("ate", "rpe", "ate_pct"):
+        for metric in ("ate", "rpe", "ate_pct", "ate_sim3", "rpe_rot"):
             values = group[metric].to_numpy(dtype=float)
             finite = values[np.isfinite(values)]
             n = int(finite.size)
@@ -346,6 +348,127 @@ def _write_rpe_table(agg: pd.DataFrame, output_path: Path) -> None:
     logger.info(f"Wrote {output_path}")
 
 
+def _write_ate_sim3_table(agg: pd.DataFrame, output_path: Path) -> None:
+    """Detailed PnP-only ATE under Sim(3) alignment, side-by-side with SE(3) ATE."""
+    baseline = _baseline_view(agg)
+    pnp = baseline[baseline["backend"] == "pnp"].copy()
+    if pnp.empty or pnp["ate_sim3_mean"].isna().all():
+        logger.warning("No PnP Sim(3) rows; skipping ATE Sim3 detailed table.")
+        return
+
+    lines: list[str] = [
+        "\\begin{table}[H]",
+        (
+            "\\caption{Baseline PnP ATE under Sim(3) alignment on the 32-sequence "
+            "TartanAir validation split: mean$\\pm$std (m), finite-aggregation coverage "
+            "(n/32), median with IQR, and 95\\% bootstrap confidence interval. "
+            "Reported side-by-side with the SE(3) PnP ATE from Table~\\ref{tab:metrics_detailed_ate} "
+            "to isolate trajectory-shape error from metric-scale drift. \\textbf{Bold}: within "
+            "each stride, the frontend with the lower Sim(3) ATE mean (i.e. lower "
+            "trajectory-shape error after metric-scale is absorbed).}"
+        ),
+        "\\label{tab:metrics_detailed_ate_sim3}",
+        "\\footnotesize",
+        "\\centering",
+        "\\setlength{\\tabcolsep}{3pt}",
+        "\\resizebox{\\linewidth}{!}{%",
+        "\\begin{tabular}{llrlllll}",
+        "\\toprule",
+        (
+            "frontend & backend & stride & ATE SE(3) (m) & ATE Sim(3) (m) & "
+            "coverage & Sim(3) median [IQR] & Sim(3) 95\\% CI \\\\"
+        ),
+        "\\midrule",
+    ]
+
+    pnp_sorted = pnp.sort_values(["frame_stride", "frontend"]).copy()
+    best_sim3_per_stride: dict[int, str] = {}
+    for stride_val, stride_group in pnp_sorted.groupby("frame_stride", sort=True):
+        finite = stride_group.dropna(subset=["ate_sim3_mean"])
+        if finite.empty:
+            continue
+        best_row = finite.loc[finite["ate_sim3_mean"].idxmin()]
+        best_sim3_per_stride[int(stride_val)] = str(best_row["frontend"])
+
+    for _, row in pnp_sorted.iterrows():
+        is_best = best_sim3_per_stride.get(int(row["frame_stride"])) == str(row["frontend"])
+        b_open = "\\textbf{" if is_best else ""
+        b_close = "}" if is_best else ""
+        se3 = f"{_fmt(row['ate_mean'])} $\\pm$ {_fmt(row['ate_std'])}"
+        sim3 = f"{_fmt(row['ate_sim3_mean'])} $\\pm$ {_fmt(row['ate_sim3_std'])}"
+        median_iqr = f"{_fmt(row['ate_sim3_median'])} [{_fmt(row['ate_sim3_iqr'])}]"
+        ci = f"[{_fmt(row['ate_sim3_ci_lower'])}, {_fmt(row['ate_sim3_ci_upper'])}]"
+        cells = [
+            str(row["frontend"]),
+            str(row["backend"]),
+            str(int(row["frame_stride"])),
+            se3,
+            f"{b_open}{sim3}{b_close}",
+            row["coverage_str"],
+            f"{b_open}{median_iqr}{b_close}",
+            f"{b_open}{ci}{b_close}",
+        ]
+        lines.append(" & ".join(cells) + " \\\\")
+
+    lines.extend(["\\bottomrule", "\\end{tabular}%", "}", "\\end{table}", ""])
+    output_path.write_text("\n".join(lines))
+    logger.info(f"Wrote {output_path}")
+
+
+def _write_rpe_rot_table(agg: pd.DataFrame, output_path: Path) -> None:
+    """Detailed Rotational RPE table, mirroring the translational-RPE table layout."""
+    baseline = _baseline_view(agg)
+    if baseline.empty or baseline["rpe_rot_mean"].isna().all():
+        logger.warning("No rotational RPE rows; skipping detailed table.")
+        return
+
+    lines: list[str] = [
+        "\\begin{table}[H]",
+        (
+            "\\caption{Baseline Rotational RPE (deg/frame) on the 32-sequence TartanAir "
+            "validation split: mean$\\pm$std, finite-aggregation coverage (n/32), median "
+            "with IQR, and 95\\% bootstrap confidence interval. \\textbf{Bold}: within "
+            "each (frontend, stride) pair, the backend with the lower rotational RPE mean.}"
+        ),
+        "\\label{tab:metrics_detailed_rpe_rot}",
+        "\\footnotesize",
+        "\\centering",
+        "\\setlength{\\tabcolsep}{3pt}",
+        "\\resizebox{\\linewidth}{!}{%",
+        "\\begin{tabular}{llrllll}",
+        "\\toprule",
+        (
+            "frontend & backend & stride & mean $\\pm$ std (deg/frame) & "
+            "coverage & median [IQR] (deg/frame) & 95\\% CI (deg/frame) \\\\"
+        ),
+        "\\midrule",
+    ]
+
+    for (_fe, _stride), pair in baseline.groupby(["frontend", "frame_stride"], sort=True):
+        best = _best_backend(pair, "rpe_rot_mean")
+        for _, row in pair.iterrows():
+            is_best = row["backend"] == best
+            b_open = "\\textbf{" if is_best else ""
+            b_close = "}" if is_best else ""
+            mean_std = f"{_fmt(row['rpe_rot_mean'])} $\\pm$ {_fmt(row['rpe_rot_std'])}"
+            median_iqr = f"{_fmt(row['rpe_rot_median'])} [{_fmt(row['rpe_rot_iqr'])}]"
+            ci = f"[{_fmt(row['rpe_rot_ci_lower'])}, {_fmt(row['rpe_rot_ci_upper'])}]"
+            cells = [
+                str(row["frontend"]),
+                str(row["backend"]),
+                str(int(row["frame_stride"])),
+                f"{b_open}{mean_std}{b_close}",
+                row["coverage_str"],
+                f"{b_open}{median_iqr}{b_close}",
+                f"{b_open}{ci}{b_close}",
+            ]
+            lines.append(" & ".join(cells) + " \\\\")
+
+    lines.extend(["\\bottomrule", "\\end{tabular}%", "}", "\\end{table}", ""])
+    output_path.write_text("\n".join(lines))
+    logger.info(f"Wrote {output_path}")
+
+
 def _write_wilcoxon_tex(tests_df: pd.DataFrame, output_path: Path) -> None:
     """Renders a LaTeX table of Wilcoxon outcomes with Holm-Bonferroni correction."""
     if tests_df.empty:
@@ -432,6 +555,8 @@ def main(n_boot: int = 1000, confidence: float = 0.95, seed: int = 0) -> None:
     paper_tables.mkdir(parents=True, exist_ok=True)
     _write_ate_table(agg, paper_tables / "vo_metrics_summary_detailed_ate.tex")
     _write_rpe_table(agg, paper_tables / "vo_metrics_summary_detailed_rpe.tex")
+    _write_ate_sim3_table(agg, paper_tables / "vo_metrics_summary_detailed_ate_sim3.tex")
+    _write_rpe_rot_table(agg, paper_tables / "vo_metrics_summary_detailed_rpe_rot.tex")
     _write_wilcoxon_tex(tests_df, paper_tables / "wave1_wilcoxon_holm.tex")
 
     legacy = paper_tables / "vo_metrics_summary_detailed.tex"

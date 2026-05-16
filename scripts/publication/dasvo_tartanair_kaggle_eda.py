@@ -69,7 +69,10 @@ def generate_eda_assets() -> None:
     df["is_aligned"] = (df["image_count"] == df["depth_count"]) & (df["depth_count"] == df["pose_rows"])
 
     # 1. Summary Stats Table
-    summary = pd.Series({
+    # NOTE: pandas 2.x `to_latex` no longer escapes underscores by default, so
+    # row labels are written without underscores (use spaces) to keep the
+    # generated table LaTeX-safe regardless of escape behaviour.
+    summary_df_csv = pd.Series({
         "sequences": int(len(df)),
         "environments": int(df["environment"].nunique()),
         "easy_sequences": int((df["difficulty"] == "Easy").sum()),
@@ -79,17 +82,18 @@ def generate_eda_assets() -> None:
         "max_sequence_length": int(df["pose_rows"].max()),
         "mean_sequence_length": float(df["pose_rows"].mean()),
         "all_sequences_aligned": bool(df["is_aligned"].all()),
-    })
-    summary_df = summary.to_frame("value")
-    summary_df.to_latex(
+    }).to_frame("value")
+
+    summary_df_tex = summary_df_csv.rename(index=lambda key: key.replace("_", " "))
+    summary_df_tex.to_latex(
         tables_dir / "eda_stats.tex",
         float_format="%.2f",
-        caption="TartanAir Dataset Subset Summary",
+        caption="TartanAir Dataset Subset Summary.",
         label="tab:eda_stats",
     )
-    
+
     csv_path = tables_dir / "eda_stats.csv"
-    summary_df.to_csv(csv_path)
+    summary_df_csv.to_csv(csv_path)
 
     # 2. Sequences by Difficulty and Frames by Environment
     environment_summary = (

@@ -150,7 +150,7 @@ def generate_tables(df: pd.DataFrame, output_dir: Path) -> None:
     pivot_baseline.to_latex(
         output_dir / "vo_metrics_summary.tex",
         escape=False,
-        caption="Baseline ATE (m) across Frame Strides",
+        caption="Baseline ATE (m) across Frame Strides.",
         label="tab:baseline_ate",
     )
     
@@ -166,14 +166,14 @@ def generate_tables(df: pd.DataFrame, output_dir: Path) -> None:
     pivot_robust.to_latex(
         output_dir / "robustness_metrics.tex",
         escape=False,
-        caption="Robustness to Visual Degradations (ATE in m, Stride 4)",
+        caption="Robustness to Visual Degradations (ATE in m, Stride 4).",
         label="tab:robustness_ate",
     )
     
-    # Table 3: Baseline Relative Pose Error (RPE) for Local Stability
-    rpe_df = baseline_df[baseline_df["frame_stride"].isin([1, 4])]
+    # Table 3: Baseline Relative Pose Error (RPE) for Local Stability.
+    # Keep symmetric with Table 1 (all strides), so reviewers can compare ATE/RPE row-by-row.
     pivot_rpe = format_mean_std_bold_best(
-        rpe_df,
+        baseline_df,
         index_col="frame_stride",
         columns_cols=["frontend", "backend"],
         mean_col="rpe_mean",
@@ -182,10 +182,59 @@ def generate_tables(df: pd.DataFrame, output_dir: Path) -> None:
     pivot_rpe.to_latex(
         output_dir / "vo_metrics_by_sequence.tex",
         escape=False,
-        caption="Baseline RPE (m/frame) for Local Stability",
+        caption="Baseline RPE (m/frame) for Local Stability.",
         label="tab:rpe_stability",
     )
-    _write_detailed_baseline_table(df, output_dir)
+
+    # Table 3b: PnP-only ATE under Sim(3) alignment.
+    # Sim(3) absorbs metric scale so the contrast with the SE(3) PnP ATE in
+    # Table 1 isolates the trajectory-shape component of the depth-assisted
+    # advantage. Essential is already Sim(3)-aligned in Table 1 by design and
+    # is therefore omitted here to avoid implying a separate Sim3 measurement.
+    pnp_baseline = baseline_df[baseline_df["backend"] == "pnp"]
+    if not pnp_baseline.empty and pnp_baseline["ate_sim3_mean"].notna().any():
+        pivot_sim3 = format_mean_std_bold_best(
+            pnp_baseline,
+            index_col="frame_stride",
+            columns_cols=["frontend"],
+            mean_col="ate_sim3_mean",
+            std_col="ate_sim3_std",
+        )
+        pivot_sim3.to_latex(
+            output_dir / "vo_metrics_summary_ate_sim3.tex",
+            escape=False,
+            caption=(
+                "PnP ATE (m) under Sim(3) alignment across Frame Strides. "
+                "Sim(3) absorbs metric scale, so the contrast with Table~\\ref{tab:baseline_ate} "
+                "isolates the trajectory-shape component of the PnP advantage from metric-scale drift."
+            ),
+            label="tab:baseline_ate_sim3",
+        )
+
+    # Table 3c: Rotational RPE (deg/frame).
+    if "rpe_rot_mean" in baseline_df.columns and baseline_df["rpe_rot_mean"].notna().any():
+        pivot_rpe_rot = format_mean_std_bold_best(
+            baseline_df,
+            index_col="frame_stride",
+            columns_cols=["frontend", "backend"],
+            mean_col="rpe_rot_mean",
+            std_col="rpe_rot_std",
+        )
+        pivot_rpe_rot.to_latex(
+            output_dir / "vo_metrics_rotational_rpe.tex",
+            escape=False,
+            caption="Baseline Rotational RPE (deg/frame) for Angular Stability.",
+            label="tab:rpe_rotational",
+        )
+
+    # The combined ATE/RPE detailed table is superseded by the per-metric
+    # detailed tables produced by `wave1_revision_metrics.py` (`make revision`).
+    # Remove any stale copy so `make assets` does not re-stage it.
+    legacy_detailed = output_dir / "vo_metrics_summary_detailed.tex"
+    if legacy_detailed.exists():
+        legacy_detailed.unlink()
+        logger.info(f"Removed legacy combined detailed table {legacy_detailed}")
+
     logger.info("Generated LaTeX tables.")
 
 
@@ -429,12 +478,22 @@ def generate_comments_placeholders(output_dir: Path, figures_dir: Path) -> None:
 
 def copy_to_publication() -> None:
     import shutil
-    
+
     pub_tables = SETTINGS.paths.paper_tables_root
     pub_figures = SETTINGS.paths.paper_figures_root
     pub_tables.mkdir(parents=True, exist_ok=True)
     pub_figures.mkdir(parents=True, exist_ok=True)
-    
+
+    # Retired artifacts: combined detailed table is superseded by the per-metric
+    # detailed tables produced by `wave1_revision_metrics.py`. Remove any stale
+    # copies before mirroring so they cannot reappear after a re-run.
+    for stale_name in ("vo_metrics_summary_detailed.tex",):
+        for root in (SETTINGS.paths.tables_root, pub_tables):
+            stale = root / stale_name
+            if stale.exists():
+                stale.unlink()
+                logger.info(f"Removed retired artifact {stale}")
+
     # Copy tables
     for tex_file in SETTINGS.paths.tables_root.glob("*.tex"):
         shutil.copy(tex_file, pub_tables / tex_file.name)
@@ -508,7 +567,7 @@ def main() -> None:
         logger.warning("No result JSON files found. Writing expected-grid failure summary.")
         df = expected_df.copy()
 
-    for metric in ("ate", "rpe"):
+    for metric in ("ate", "rpe", "ate_sim3", "rpe_rot"):
         if metric not in df:
             df[metric] = np.nan
         df[metric] = pd.to_numeric(df[metric], errors="coerce")
@@ -541,6 +600,18 @@ def main() -> None:
             confidence=SETTINGS.evaluation.confidence_level,
             seed=SETTINGS.evaluation.bootstrap_seed + 10000 + group_index,
         )
+        ate_sim3_stats = _metric_stats(
+            group["ate_sim3"],
+            n_boot=SETTINGS.evaluation.bootstrap_samples,
+            confidence=SETTINGS.evaluation.confidence_level,
+            seed=SETTINGS.evaluation.bootstrap_seed + 20000 + group_index,
+        )
+        rpe_rot_stats = _metric_stats(
+            group["rpe_rot"],
+            n_boot=SETTINGS.evaluation.bootstrap_samples,
+            confidence=SETTINGS.evaluation.confidence_level,
+            seed=SETTINGS.evaluation.bootstrap_seed + 30000 + group_index,
+        )
         sequences_expected = int(len(group))
         sequences_observed = int(group["observed"].sum())
         failure_count = int(group["failed"].sum())
@@ -554,7 +625,12 @@ def main() -> None:
                 "failure_rate": float(failure_count / sequences_expected) if sequences_expected else float("nan"),
             }
         )
-        for prefix, stats in (("ate", ate_stats), ("rpe", rpe_stats)):
+        for prefix, stats in (
+            ("ate", ate_stats),
+            ("rpe", rpe_stats),
+            ("ate_sim3", ate_sim3_stats),
+            ("rpe_rot", rpe_rot_stats),
+        ):
             for name, value in stats.items():
                 row[f"{prefix}_{name}"] = value
         agg_rows.append(row)

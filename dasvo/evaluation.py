@@ -11,7 +11,7 @@ import numpy as np
 
 def load_gt(pose_file):
     """
-    Loads ground-truth trajectory from TartanAir format.
+    Loads ground-truth translation trajectory from TartanAir format (Nx3).
     """
     poses = np.loadtxt(pose_file)
     return poses[:, :3]
@@ -26,11 +26,34 @@ def load_gt_stride(pose_file: str | Path, frame_stride: int) -> np.ndarray:
     return full[::step]
 
 
+def load_gt_pose_stride(pose_file: str | Path, frame_stride: int) -> np.ndarray:
+    """
+    Full TUM-style GT pose (Nx7: tx ty tz qx qy qz qw) subsampled by stride.
+    """
+    poses = np.loadtxt(pose_file)
+    if poses.ndim != 2 or poses.shape[1] < 7:
+        raise ValueError(f"Expected Nx7 TUM pose file, got shape {poses.shape}")
+    step = max(1, int(frame_stride))
+    return poses[::step]
+
+
 def load_est(traj_file):
     """
-    Loads estimated trajectory.
+    Loads estimated translation trajectory (Nx3).
     """
     return np.loadtxt(traj_file)
+
+
+def load_est_pose(pose_file: str | Path) -> np.ndarray:
+    """
+    Loads estimated full TUM-style pose (Nx7).
+    """
+    arr = np.loadtxt(pose_file)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    if arr.shape[1] < 7:
+        raise ValueError(f"Expected Nx7 TUM pose file, got shape {arr.shape}")
+    return arr
 
 
 def align_umeyama(model, data, with_scale=False):
@@ -82,6 +105,39 @@ def compute_rpe(gt, est, delta=1):
     if len(errors) == 0:
         return float("nan")
     return float(np.sqrt(np.mean(errors**2)))
+
+def compute_rpe_rotational(gt_quat: np.ndarray, est_quat: np.ndarray, delta: int = 1) -> float:
+    """
+    Rotational RPE, in degrees, between two quaternion trajectories.
+
+    Inputs are Nx4 in (x, y, z, w) order. For each pair (i, i+delta) the relative
+    rotation increment is computed on both trajectories and the angular error of
+    est_rel^{-1} * gt_rel is reduced to RMSE degrees.
+    """
+    if delta <= 0:
+        raise ValueError("delta must be positive")
+    gt_quat = np.asarray(gt_quat)
+    est_quat = np.asarray(est_quat)
+    n = min(len(gt_quat), len(est_quat))
+    if n <= delta:
+        return float("nan")
+
+    try:
+        from scipy.spatial.transform import Rotation
+    except ImportError:
+        return float("nan")
+
+    gt_rot = Rotation.from_quat(gt_quat[:n])
+    est_rot = Rotation.from_quat(est_quat[:n])
+
+    gt_rel = gt_rot[:-delta].inv() * gt_rot[delta:]
+    est_rel = est_rot[:-delta].inv() * est_rot[delta:]
+
+    error_rot = est_rel.inv() * gt_rel
+    angles_deg = np.degrees(error_rot.magnitude())
+    if angles_deg.size == 0:
+        return float("nan")
+    return float(np.sqrt(np.mean(angles_deg ** 2)))
 
 
 def compute_rpe_errors(gt, est, delta=1):

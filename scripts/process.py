@@ -5,6 +5,7 @@ from pathlib import Path
 import fire
 import numpy as np
 from loguru import logger
+from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
 from dasvo.data_loader import TartanAirLoader
@@ -12,6 +13,13 @@ from dasvo.datasets import TartanAirSequence, list_sequences
 from dasvo.front_end import KLTFrontEnd, ORBFrontEnd
 from dasvo.geometry import EssentialMatrixBackend, PnPBackend
 from dasvo.settings import SETTINGS
+
+
+def _pose_to_tum_row(pose: np.ndarray) -> np.ndarray:
+    """4x4 SE(3) -> (tx, ty, tz, qx, qy, qz, qw)."""
+    t = pose[:3, 3]
+    q = Rotation.from_matrix(pose[:3, :3]).as_quat()
+    return np.concatenate([t, q])
 
 
 def process_sequence(
@@ -26,7 +34,9 @@ def process_sequence(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     marker_file = output_dir / f"{sequence.sequence_id}_done.txt"
-    if marker_file.exists():
+    traj_file = output_dir / f"{sequence.sequence_id}_traj.txt"
+    pose_file = output_dir / f"{sequence.sequence_id}_pose.txt"
+    if marker_file.exists() and pose_file.exists():
         return
 
     try:
@@ -51,7 +61,7 @@ def process_sequence(
         else:
             raise ValueError(f"Unknown backend: {backend_name}")
 
-        trajectory = []
+        pose_history = []
         current_pose = np.eye(4)
         prev_depth = None
 
@@ -64,7 +74,7 @@ def process_sequence(
             pts1, pts2 = frontend.process_frame(img)
 
             if pts1 is None or len(pts1) == 0:
-                trajectory.append(current_pose[:3, 3])
+                pose_history.append(_pose_to_tum_row(current_pose))
                 prev_depth = depth
                 continue
 
@@ -76,12 +86,13 @@ def process_sequence(
                 T_rel[:3, 3] = t.flatten()
                 current_pose = current_pose @ np.linalg.inv(T_rel)
 
-            trajectory.append(current_pose[:3, 3])
+            pose_history.append(_pose_to_tum_row(current_pose))
             prev_depth = depth
 
-        traj_file = output_dir / f"{sequence.sequence_id}_traj.txt"
-        np.savetxt(traj_file, np.array(trajectory))
-        
+        pose_arr = np.asarray(pose_history)
+        np.savetxt(traj_file, pose_arr[:, :3])
+        np.savetxt(pose_file, pose_arr)
+
         marker_file.touch()
 
     except Exception as e:
