@@ -88,6 +88,7 @@ def generate_eda_assets() -> None:
     summary_df_tex.to_latex(
         tables_dir / "eda_stats.tex",
         float_format="%.2f",
+        position="H",
         caption="TartanAir Dataset Subset Summary.",
         label="tab:eda_stats",
     )

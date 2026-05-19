@@ -150,6 +150,7 @@ def generate_tables(df: pd.DataFrame, output_dir: Path) -> None:
     pivot_baseline.to_latex(
         output_dir / "vo_metrics_summary.tex",
         escape=False,
+        position="H",
         caption="Baseline ATE (m) across Frame Strides.",
         label="tab:baseline_ate",
     )
