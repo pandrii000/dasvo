@@ -1,5 +1,5 @@
 [project]
-name = "depth-assisted-sparse-visual-odometry"
+name = "dasvo"
 version = "0.1.0"
 description = "DASVO"
 readme = "README.md"
