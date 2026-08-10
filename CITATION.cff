@@ -1,0 +1,57 @@
+cff-version: 1.2.0
+message: >-
+  If you use DASVO, please cite the accompanying Robotics article.
+title: "DASVO: Depth-Assisted Sparse Visual Odometry"
+type: software
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/pandrii000/dasvo"
+url: "https://github.com/pandrii000/dasvo"
+authors:
+  - family-names: Polukhin
+    given-names: Andrii
+    orcid: "https://orcid.org/0009-0000-7650-5185"
+keywords:
+  - visual odometry
+  - RGB-D
+  - UAV
+  - robotics
+  - computer vision
+preferred-citation:
+  type: article
+  title: >-
+    Depth-Assisted Sparse Visual Odometry for UAV-Relevant Synthetic RGB-D
+    Evaluation: A Controlled Geometric-Backend Ablation
+  authors:
+    - family-names: Polukhin
+      given-names: Andrii
+      orcid: "https://orcid.org/0009-0000-7650-5185"
+    - family-names: Stirenko
+      given-names: Sergii
+      orcid: "https://orcid.org/0000-0001-5478-0450"
+    - family-names: Leier
+      given-names: Mairo
+      orcid: "https://orcid.org/0000-0002-9878-4477"
+    - family-names: Jervan
+      given-names: Gert
+      orcid: "https://orcid.org/0000-0003-2237-0187"
+    - family-names: Rokovyi
+      given-names: Oleksandr
+      orcid: "https://orcid.org/0000-0001-6934-7502"
+    - family-names: Alienin
+      given-names: Oleg
+      orcid: "https://orcid.org/0000-0003-4261-3895"
+    - family-names: Nazeer
+      given-names: Nazrul
+      orcid: "https://orcid.org/0009-0005-5840-9380"
+    - family-names: Gordienko
+      given-names: Yuri
+      orcid: "https://orcid.org/0000-0003-2682-4668"
+  journal: Robotics
+  volume: "15"
+  issue: "7"
+  start: "128"
+  end: "128"
+  date-published: 2026-06-30
+  doi: "10.3390/robotics15070128"
+  url: "https://doi.org/10.3390/robotics15070128"

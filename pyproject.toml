@@ -3,6 +3,10 @@ name = "dasvo"
 version = "0.1.0"
 description = "DASVO"
 readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Andrii Polukhin", email = "pandrii000@gmail.com" },
+]
 requires-python = ">=3.10"
 dependencies = [
     "boto3>=1.43.4",
@@ -23,6 +27,12 @@ dependencies = [
     "tabulate>=0.10.0",
     "tqdm>=4.65.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/pandrii000/dasvo"
+Paper = "https://doi.org/10.3390/robotics15070128"
+Dataset = "https://www.kaggle.com/datasets/pandrii000/dasvo-tartanair-rgb-d-validation-split"
+Source = "https://github.com/pandrii000/dasvo"
 
 [tool.setuptools.packages.find]
 where = ["."]

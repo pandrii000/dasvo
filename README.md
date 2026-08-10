@@ -1,5 +1,18 @@
 # Depth-Assisted Sparse Visual Odometry
 
+DASVO is the reproducibility code for the peer-reviewed open-access article
+"Depth-Assisted Sparse Visual Odometry for UAV-Relevant Synthetic RGB-D
+Evaluation: A Controlled Geometric-Backend Ablation." It compares RGB-only
+Essential Matrix and depth-assisted PnP geometric backends under fixed ORB and
+KLT sparse frontends, temporal subsampling, and synthetic image degradation.
+
+## Research resources
+
+- Paper: [Robotics 2026, 15(7), 128](https://www.mdpi.com/2218-6581/15/7/128)
+- DOI: [10.3390/robotics15070128](https://doi.org/10.3390/robotics15070128)
+- OpenAlex: [W7166681598](https://openalex.org/W7166681598)
+- Dataset: [DASVO TartanAir RGB-D Validation Split](https://www.kaggle.com/datasets/pandrii000/dasvo-tartanair-rgb-d-validation-split)
+
 This is a `uv`-managed Python project. The project dependencies, Python version
 constraints, and development tooling are defined in `pyproject.toml`.
 
@@ -156,3 +169,31 @@ Run the test suite using `pytest`:
 ```bash
 uv run pytest tests/
 ```
+
+## Citation
+
+If this software supports your research, cite the accompanying article. The
+same metadata is available in [`CITATION.cff`](CITATION.cff) for GitHub's
+"Cite this repository" interface.
+
+```bibtex
+@article{polukhin2026dasvo,
+  author  = {Polukhin, Andrii and Stirenko, Sergii and Leier, Mairo and
+             Jervan, Gert and Rokovyi, Oleksandr and Alienin, Oleg and
+             Nazeer, Nazrul and Gordienko, Yuri},
+  title   = {Depth-Assisted Sparse Visual Odometry for UAV-Relevant Synthetic
+             RGB-D Evaluation: A Controlled Geometric-Backend Ablation},
+  journal = {Robotics},
+  volume  = {15},
+  number  = {7},
+  pages   = {128},
+  year    = {2026},
+  doi     = {10.3390/robotics15070128},
+  url     = {https://doi.org/10.3390/robotics15070128}
+}
+```
+
+## License
+
+The DASVO software is released under the [MIT License](LICENSE). The published
+article and companion dataset retain their own stated licenses.
